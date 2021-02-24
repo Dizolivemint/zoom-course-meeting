@@ -90,6 +90,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+zoom_creds
 
 # Spyder project settings
 .spyderproject
