@@ -7,8 +7,10 @@ from typing import NamedTuple, Dict, Union, cast
 
 API_KEY_KEY = 'api_key'
 API_SECRET_KEY = 'api_secret'
+TOKEN = 'token'
+URL = 'url'
 
-Creds = NamedTuple('Creds', [('key', str), ('secret', str)])
+Creds = NamedTuple('Creds', [('key', str), ('secret', str), ('url', str), ('token', str)])
 
 # Open Schedule CSV
 # ---Start---
@@ -17,23 +19,24 @@ def read_csv():
     with open('schedule.csv', newline='') as csvfile:
         meeting_reader = csv.reader(csvfile, dialect='excel', delimiter=',', quotechar='|')
         for row in meeting_reader:
-            # print(', '.join(row))
             meetings.append({
-                'topic': f'{row[0].rstrip()}',
+                'shortname': f'{row[1].rstrip()}',
+                'topic': f'{row[0].rstrip()}' + ' - ' + f'{row[1].rstrip()}',
                 'meeting_type': '2',
-                'start_time': f'{row[1]}',
-                'duration': f'{row[2]}',
-                'schedule_for': f'{row[3]}',
-                'timezone': f'{row[4]}',
-                'week_days': f'{row[5]}',
+                'start_time': f'{row[2]}',
+                'duration': f'{row[3]}',
+                'schedule_for': f'{row[4]}',
+                'timezone': f'{row[5]}',
+                'week_days': f'{row[6]}',
                 'recurrence_type': '2',
-                'end_date_time': f'{row[6]}'
+                'end_date_time': f'{row[7]}'
             })
 
     return meetings
-
 # ---End---
 
+# Read and process credentials
+# ---Start---
 def read_credentails() -> Creds:
     raw_creds: Dict[str, str] = {}
     with open('zoom_creds', 'r') as cred_file:
@@ -43,23 +46,25 @@ def read_credentails() -> Creds:
 
     key = raw_creds[API_KEY_KEY]
     secret = raw_creds[API_SECRET_KEY]
+    url = raw_creds[URL]
+    token = raw_creds[TOKEN]
     
-    return Creds(key, secret)
+    return Creds(key, secret, url, token)
 
 def generate_jwt(key: str, secret: str) -> str:
     expiry = datetime.utcnow() + timedelta(minutes=15)
-    print(expiry)
     unix_expiry = expiry.timestamp()
-    print(unix_expiry)
     payload: Dict[str, str] = {'iss': key, 'exp': unix_expiry}
     encoded_jwt = jwt.encode(payload, secret, algorithm='HS256')
+    
     return encoded_jwt
 
 def json_to_dict(res) -> dict:
     data_json = res.read().decode('utf-8')
-    print(data_json)
     data: Dict[str, Union[str, int]] = json.loads(data_json)
+    
     return data
+# ---End---
 
 # Create New Meeting
 # ---Start--- #
@@ -70,8 +75,6 @@ def new_meeting_request(valid_jwt: str, meeting: dict) -> str:
 		'content-type': 'application/json'
 	}
     
-    meeting = {'topic': 'Introduction to Kinesiology - BT257.01.2021S.SD', 'meeting_type': '2', 'start_time': '2021-05-03T13:30:00.000Z', 'duration': '195', 'schedule_for': 'mexner@pacificcollege.edu', 'timezone': 'America/Los_Angeles', 'week_days': '2', 'recurrence_type': '2', 'end_date_time': '2021-08-15T23:59:59Z'}
-    
     conn.request('GET', f'/v2/users/{meeting["schedule_for"]}', body=None, headers=headers)
     res = conn.getresponse()
     data = json_to_dict(res)
@@ -81,60 +84,82 @@ def new_meeting_request(valid_jwt: str, meeting: dict) -> str:
     res = conn.getresponse()
     data = json_to_dict(res)
     
-    return cast(str, data['join_url'])
+    return cast(str, data['id'])
 # ---End---
 
 
 # Fetch Course ID
 # ---Start---
-def fetch_course_id(shortname: str) -> str:
-    conn = http.client.HTTPSConnection(moodle_url)
-    headers = {
-		'content-type': 'application/json'
-	}
-    body = {
-        'wstoken': 'token',
-        'wsfunction': 'functionName',
-        'moodlewsrestformat': 'json',
-        'field': 'shortname',
-        'value': shortname
-    }
+def fetch_course_id(shortname: str, url: str, token: str) -> str:
+    conn = http.client.HTTPSConnection(url)
+
+    function = 'core_course_get_courses_by_field'
     
-    conn.request('POST', f'/v2/users/{user_id}/meetings', body=json.dumps(meeting), headers=headers)
+    conn.request('GET', f'/webservice/rest/server.php?wstoken={token}&wsfunction={function}&moodlewsrestformat=json&field=shortname&value={shortname}', body=None, headers={})
     res = conn.getresponse()
     data = json_to_dict(res)
     
-    return cast(str, data['id'])
+    return cast(str, data['courses'][0]['id'])
 # ---End---
         
 # Store Meeting ID and Course ID
 # ---Start---
-# lti_csv = []
-# lti_csv.append({
-#     'meeting_id': meeting_id,
-#     'course_id': course_id,
-#     'meeting_url': meeting_url
-# })
+def store_data(lti_csv: list, meeting_id: str, course_id: str) -> list:
+    lti_csv.append([
+        meeting_id,
+        course_id,
+        'https://elearning.pacificcollege.edu'
+    ])
+    
+    return lti_csv
 # ---End---
 
 # Write CSV for Zoom LTI (Meeting ID and Moodle Course ID)
 # ---Start---
-# with open(out_filename, 'w', newline='') as csvfile:
-#     writer = csv.writer(csvfile, delimiter=',',
-#                             quotechar='|', quoting=csv.QUOTE_MINIMAL)
-#     writer.writerow(['Meeting ID', 'Course ID'])
+def write_csv(lti_csv: list, out_filename: str) -> bool:
+    with open(out_filename, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile, delimiter=',',
+                            quotechar='|', quoting=csv.QUOTE_MINIMAL)
+        writer.writerow(['Meeting ID', 'Context ID', 'Domain'])
+
+        for lti in lti_csv:
+            writer.writerow(lti)
+    
+    csvfile.close()
+    
+    return True
 # ---End---
 
 if __name__ == '__main__':
     # Create JWT
-    key, secret = read_credentails()
+    key, secret, url, token = read_credentails()
     new_jwt = generate_jwt(key, secret)
 
     # Read Schedule
     meetings = read_csv()
+    
+    # Create a list to write to CSV
+    lti_csv = []
+    
+    # Loop through schedule
     for body in meetings:
-        print(body)
-        # Create Meeting or TODO: Check if meeting exists and Update meeting
-        join_url = new_meeting_request(new_jwt, body)
-        print(join_url)
+        print(f'Processing Course: {body["topic"]}')
         
+        # Fetch course ID
+        course_id = fetch_course_id(body['shortname'], url, token)
+        print(f'Course ID: {course_id}')
+        
+        # Remove the shortname field before creating a meeting
+        del body['shortname']
+        
+        # Create Meeting or TODO: Check if meeting exists and Update meeting
+        meeting_id = new_meeting_request(new_jwt, body)
+        print(f'Meeting ID: {meeting_id}')
+        
+        # Store meeting and course ID
+        lti_csv = store_data(lti_csv, meeting_id, course_id)
+    
+    if write_csv(lti_csv, 'mdl-zoom.csv'):
+        print(f'File successfully created!')
+    else:
+        print(f'Error writting file!')
