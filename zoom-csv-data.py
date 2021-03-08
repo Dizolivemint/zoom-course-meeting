@@ -22,14 +22,17 @@ def read_csv():
             meetings.append({
                 'shortname': f'{row[1].rstrip()}',
                 'topic': f'{row[0].rstrip()}' + ' - ' + f'{row[1].rstrip()}',
-                'meeting_type': '2',
+                'type': 8,
                 'start_time': f'{row[2]}',
                 'duration': f'{row[3]}',
                 'schedule_for': f'{row[4]}',
                 'timezone': f'{row[5]}',
-                'week_days': f'{row[6]}',
-                'recurrence_type': '2',
-                'end_date_time': f'{row[7]}'
+                'recurrence': {
+                    'type': 2,
+                    'repeat_interval': 1,
+                    'weekly_days': f'{row[6]}',
+                    'end_date_time': f'{row[7]}'
+                }
             })
 
     return meetings
@@ -83,7 +86,7 @@ def new_meeting_request(valid_jwt: str, meeting: dict) -> str:
     conn.request('POST', f'/v2/users/{user_id}/meetings', body=json.dumps(meeting), headers=headers)
     res = conn.getresponse()
     data = json_to_dict(res)
-    
+
     return cast(str, data['id'])
 # ---End---
 
