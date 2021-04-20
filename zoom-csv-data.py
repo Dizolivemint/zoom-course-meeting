@@ -32,8 +32,17 @@ def read_csv():
                     'repeat_interval': 1,
                     'weekly_days': f'{row[6]}',
                     'end_date_time': f'{row[7]}'
+                },
+                'settings': {
+                    'join_before_host': 'true',
+                    'jbh_time': 10,
+                    'mute_upon_entry': 'true',
+                    'meeting_authentication': 'true',
+                    'authentication_domains': 'pacificcollege.edu'
                 }
             })
+
+                
 
     return meetings
 # ---End---
@@ -77,12 +86,15 @@ def new_meeting_request(valid_jwt: str, meeting: dict) -> str:
 		'authorization': f'Bearer {valid_jwt}',
 		'content-type': 'application/json'
 	}
-    
-    conn.request('GET', f'/v2/users/{meeting["schedule_for"]}', body=None, headers=headers)
-    res = conn.getresponse()
-    data = json_to_dict(res)
-    user_id = cast(str, data['id'])
-    
+    try:
+        conn.request('GET', f'/v2/users/{meeting["schedule_for"]}', body=None, headers=headers)
+        res = conn.getresponse()
+        data = json_to_dict(res)
+        user_id = cast(str, data['id'])
+    except Exception as x:
+        data['id'] = f'Exception {x} occured on call'
+        return cast(str, data['id'])
+        
     conn.request('POST', f'/v2/users/{user_id}/meetings', body=json.dumps(meeting), headers=headers)
     res = conn.getresponse()
     data = json_to_dict(res)
@@ -95,13 +107,28 @@ def new_meeting_request(valid_jwt: str, meeting: dict) -> str:
 # ---Start---
 def fetch_course_id(shortname: str, url: str, token: str) -> str:
     conn = http.client.HTTPSConnection(url)
-
     function = 'core_course_get_courses_by_field'
-    
-    conn.request('GET', f'/webservice/rest/server.php?wstoken={token}&wsfunction={function}&moodlewsrestformat=json&field=shortname&value={shortname}', body=None, headers={})
-    res = conn.getresponse()
-    data = json_to_dict(res)
-    
+    try:
+        conn.request('GET', f'/webservice/rest/server.php?wstoken={token}&wsfunction={function}&moodlewsrestformat=json&field=shortname&value={shortname}', body=None, headers={})
+        res = conn.getresponse()
+        data = json_to_dict(res)
+    except Exception as x:
+        data = { 
+                'courses': {
+                    0: {
+                        'id': f'Exception {x} occured on {shortname}'
+                    }
+                }
+               }
+    if data['exception'] is not None:
+        data = { 
+                'courses': {
+                    0: {
+                        'id': f'Error: {data["message"]}'
+                    }
+                }
+               }
+        
     return cast(str, data['courses'][0]['id'])
 # ---End---
         
@@ -133,6 +160,32 @@ def write_csv(lti_csv: list, out_filename: str) -> bool:
     return True
 # ---End---
 
+# Store Log Data
+# ---Start---
+def log_data(log_csv: list, meeting_id: str, course_id: str, shortname: str) -> list:
+    log_csv.append([
+        shortname,
+        meeting_id,
+        course_id
+    ])
+    
+    return log_csv
+# ---End---
+
+# Write CSV for Zoom LTI (Meeting ID and Moodle Course ID)
+# ---Start---
+def write_log(log_csv: list, out_filename: str) -> bool:
+    with open(out_filename, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile, delimiter=',',
+                            quotechar='|', quoting=csv.QUOTE_MINIMAL)
+        for log in log_csv:
+            writer.writerow(log)
+    
+    csvfile.close()
+    
+    return True
+# ---End---
+
 if __name__ == '__main__':
     # Create JWT
     key, secret, url, token = read_credentails()
@@ -141,28 +194,48 @@ if __name__ == '__main__':
     # Read Schedule
     meetings = read_csv()
     
-    # Create a list to write to CSV
+    # Create a list and log to write to CSV
     lti_csv = []
+    log_csv = []
     
     # Loop through schedule
     for body in meetings:
-        print(f'Processing Course: {body["topic"]}')
         
         # Fetch course ID
         course_id = fetch_course_id(body['shortname'], url, token)
         print(f'Course ID: {course_id}')
         
-        # Remove the shortname field before creating a meeting
-        del body['shortname']
+        # Set shortname since we remove it from the dict
+        shortname = body['shortname']
         
-        # Create Meeting or TODO: Check if meeting exists and Update meeting
-        meeting_id = new_meeting_request(new_jwt, body)
-        print(f'Meeting ID: {meeting_id}')
+        # Set meeting id to None for log, in case of error
+        meeting_id = 'None'
         
-        # Store meeting and course ID
-        lti_csv = store_data(lti_csv, meeting_id, course_id)
+        # Check for error and skip iteration if found
+        if course_id[0:5] != 'Error':
+            # Remove the shortname field before creating a meeting
+            del body['shortname']
+            
+            if body['schedule_for'] == 'tbd@pacificcollege.edu':
+                print(f'{shortname} Teacher TBD')
+            else:
+                print(f'Processing Course: {body["topic"]}')
+                # Create Meeting or TODO: Check if meeting exists and Update meeting
+                meeting_id = new_meeting_request(new_jwt, body)
+                print(f'Meeting ID: {meeting_id}')
+            
+                # Store meeting and course ID
+                lti_csv = store_data(lti_csv, meeting_id, course_id)
+        
+        # Log created meeting, course ID, and shortname for reference if the meeting has been created
+        log_csv = log_data(log_csv, meeting_id, course_id, shortname)
     
     if write_csv(lti_csv, 'mdl-zoom.csv'):
         print(f'File successfully created!')
     else:
-        print(f'Error writting file!')
+        print(f'Error writting CSV file!')
+        
+    if write_log(log_csv, 'log.csv'):
+        print(f'File successfully created!')
+    else:
+        print(f'Error writting log file!')
