@@ -82,6 +82,7 @@ def json_to_dict(res) -> dict:
 # Create New Meeting
 # ---Start--- #
 def new_meeting_request(valid_jwt: str, meeting: dict) -> str:
+    data = {}
     conn = http.client.HTTPSConnection('api.zoom.us')
     headers = {
 		'authorization': f'Bearer {valid_jwt}',
@@ -93,12 +94,19 @@ def new_meeting_request(valid_jwt: str, meeting: dict) -> str:
         data = json_to_dict(res)
         user_id = cast(str, data['id'])
     except Exception as x:
-        data['id'] = f'Exception {x} occured on call'
+        data = { 'id': f'Error: {x} occured on call to fetch user' }
         return cast(str, data['id'])
+
+    try:    
+        conn.request('POST', f'/v2/users/{user_id}/meetings', body=json.dumps(meeting), headers=headers)
+        res = conn.getresponse()
+        data = json_to_dict(res)
+    except Exception as x:
+        data = { 'id': f'Error {x} occured on call to create meeting' }
         
-    conn.request('POST', f'/v2/users/{user_id}/meetings', body=json.dumps(meeting), headers=headers)
-    res = conn.getresponse()
-    data = json_to_dict(res)
+    # Error check if there is an issue finding the user
+    if 'code' in data:
+        data = { 'id': f'Error: {data["message"]} occured on call to create meeting' }
 
     return cast(str, data['id'])
 # ---End---
