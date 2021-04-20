@@ -117,19 +117,26 @@ def fetch_course_id(shortname: str, url: str, token: str) -> str:
         data = { 
                 'courses': {
                     0: {
-                        'id': f'Exception {x} occured on {shortname}'
+                        'id': f'Error: {x} occured on {shortname}'
                     }
                 }
                }
-    if data['exception'] is not None:
+    if 'exception' in data:
         data = { 
                 'courses': {
                     0: {
-                        'id': f'Error: {data["message"]}'
+                        'id': f'Error: {data["message"]} occured on {shortname}'
                     }
                 }
                }
-        
+    if data['courses'] == []:
+        data = { 
+                'courses': {
+                    0: {
+                        'id': 'Error: Course does not exist'
+                    }
+                }
+               }    
     return cast(str, data['courses'][0]['id'])
 # ---End---
         
@@ -212,16 +219,21 @@ if __name__ == '__main__':
         # Set meeting id to None for log, in case of error
         meeting_id = 'None'
         
+        # Check if course_id is int and change to string for error checking
+        if isinstance(course_id, int):
+            course_id = str(course_id)
+            
         # Check for error and skip iteration if found
-        if course_id[0:5] != 'Error':
+        if course_id[0: 5] != 'Error':
             # Remove the shortname field before creating a meeting
             del body['shortname']
             
             if body['schedule_for'] == 'tbd@pacificcollege.edu':
                 print(f'{shortname} Teacher TBD')
             else:
-                print(f'Processing Course: {body["topic"]}')
+                print(f'Creating Meeting: {body["topic"]}')
                 # Create Meeting or TODO: Check if meeting exists and Update meeting
+
                 meeting_id = new_meeting_request(new_jwt, body)
                 print(f'Meeting ID: {meeting_id}')
             
