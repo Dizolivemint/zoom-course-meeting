@@ -3,6 +3,7 @@ import http.client
 import json
 import jwt
 from datetime import datetime, timedelta
+import time
 from typing import NamedTuple, Dict, Union, cast
 
 API_KEY_KEY = 'api_key'
@@ -230,12 +231,12 @@ if __name__ == '__main__':
         # Log created meeting, course ID, and shortname for reference if the meeting has been created
         log_csv = log_data(log_csv, meeting_id, course_id, shortname)
     
-    if write_csv(lti_csv, 'mdl-zoom.csv'):
+    if write_csv(lti_csv, f'mdl-zoom{time.time()}.csv'):
         print(f'File successfully created!')
     else:
         print(f'Error writting CSV file!')
         
-    if write_log(log_csv, 'log.csv'):
+    if write_log(log_csv, f'log{time.time()}.csv'):
         print(f'File successfully created!')
     else:
         print(f'Error writting log file!')
