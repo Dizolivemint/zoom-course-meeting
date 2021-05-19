@@ -93,7 +93,8 @@ def get_meeting_participants_report_request(valid_jwt: str, meeting: dict) -> st
 		'authorization': f'Bearer {valid_jwt}',
 		'content-type': 'application/json'
 	}
-    print(meeting["id"])
+    print('________________________')
+    print('Meeting: ' + meeting["id"])
     try:
         conn.request('GET', f'/v2/report/meetings/{meeting["id"]}/participants?page_size=300', body=None, headers=headers)
         res = conn.getresponse()
@@ -109,40 +110,54 @@ def get_meeting_participants_report_request(valid_jwt: str, meeting: dict) -> st
     return cast(str, data['participants'])
 # ---End---
 
+
+# Fetch Course
+# ---Start---
+def fetch_course(course_id: str, url: str, token: str) -> str:
+    conn = http.client.HTTPSConnection(url)
+    function = 'core_course_get_courses'
+    body = { 
+            "options": {
+                "ids": [course_id]
+            }
+        }
+    try:
+        conn.request('GET', f'/webservice/rest/server.php?wstoken={token}&wsfunction={function}&moodlewsrestformat=json&options[ids][0]={course_id}', body=None, headers={})
+        res = conn.getresponse()
+        data = json_to_dict(res)
+    except Exception as x:
+        data = [{ 
+                'shortname': f'{x}'
+               }]
+    if 'exception' in data:
+        data = [{ 
+                'shortname': f'{data["message"]}'
+               }]
+    return data[0]['shortname']
+# ---End---
+
 # Fetch Course Users
 # ---Start---
 def fetch_course_users(course_id: str, url: str, token: str) -> str:
     conn = http.client.HTTPSConnection(url)
-    function = 'core_course_get_enrolled_users_by_cmid'
+    function = 'core_enrol_get_enrolled_users'
+    body = { 
+            "courseid": course_id
+        }
     try:
-        conn.request('GET', f'/webservice/rest/server.php?wstoken={token}&wsfunction={function}&cmid={course_id}', body=None, headers={})
+        conn.request('GET', f'/webservice/rest/server.php?wstoken={token}&wsfunction={function}&moodlewsrestformat=json&courseid={course_id}', body=None, headers={})
         res = conn.getresponse()
         data = json_to_dict(res)
     except Exception as x:
-        data = { 
-                'users': {
-                    0: {
-                        'id': f'Error: {x} occured on {course_id}'
-                    }
-                }
-               }
+        data = [{ 
+                'email': f'{x}'
+               }]
     if 'exception' in data:
-        data = { 
-                'users': {
-                    0: {
-                        'id': f'Error: {data["message"]} occured on {course_id}'
-                    }
-                }
-               }
-    if data['users'] == []:
-        data = { 
-                'users': {
-                    0: {
-                        'id': 'Error: Course does not exist'
-                    }
-                }
-               }    
-    return cast(str, data['users'])
+        data = [{ 
+                'email': f'{data["message"]}'
+               }]
+    
+    return data
 # ---End---
         
 # Store Meeting ID and Course ID
@@ -213,23 +228,37 @@ if __name__ == '__main__':
     
     # Loop through schedule
     for body in meetings:
-        
+        course_name = fetch_course(body['course_id'], url, token)
+        enrolled_user = []
+        meeting_attendee = []
         # Get enrolled users from Moodle
-        # users = fetch_course_users(body['course_id'], url, token)
-        # print(f'Course ID: {body["course_id"]}')
-        # print(f'Users: {users}')
+        users = fetch_course_users(body['course_id'], url, token)
         
-        # Get course duration
+        print('______________________')
+        print(course_name)
+        print(f'Course ID: {body["course_id"]}')
+        print('______________________')
+        
+        for user in users:
+            print(f'Enrolled User: {user["email"]}')
+            enrolled_user.append(user["email"])
+        
+        
         
         # Get participants from Zoom Meeting
         participants = get_meeting_participants_report_request(new_jwt, body)
         for participant in participants:
-            print(f'user_email: {participant["user_email"]}')
-            print(f'join_time: {participant["join_time"]}')
-            print(f'leave_time: {participant["leave_time"]}')
+            print(f'Meeting Participant: {participant["user_email"]}')
+            # print(f'join_time: {participant["join_time"]}')
+            # print(f'leave_time: {participant["leave_time"]}')
+            meeting_attendee.append(participant["user_email"])
+            
+        # Compare emails and log students that did not attend
+        filtered = [email for email in enrolled_user if email not in meeting_attendee]
+        print(f'Absent: {filtered}')
         
         # Compare join and leave time to course start and end time?
-        
+        # Get course duration
         
         
     #     # Log created meeting, course ID, and shortname for reference if the meeting has been created
