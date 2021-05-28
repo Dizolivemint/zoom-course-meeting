@@ -108,11 +108,11 @@ def update_meeting_request(valid_jwt: str, meeting: dict, meeting_id: str) -> st
         print(res.status, res.read())
         data = json_to_dict(res)
     except Exception as x:
-        data = { 'topic': f'Error {x} occured on call to create meeting' }
+        data = { 'topic': f'Error {x} occured on call to update meeting' }
         
     # Error check if there is an issue finding the user
     if 'code' in data:
-        data = { 'topic': f'Error: {data["message"]} occured on call to create meeting' }
+        data = { 'topic': f'Error: {data["message"]} occured on call to update meeting' }
 
     return cast(str, data['topic'])
 # ---End---
@@ -133,11 +133,11 @@ def update_webinar_request(valid_jwt: str, meeting: dict, meeting_id: str) -> st
         print(res.status, res.read())
         data = json_to_dict(res)
     except Exception as x:
-        data = { 'topic': f'Error {x} occured on call to create webinar' }
+        data = { 'topic': f'Error {x} occured on call to update webinar' }
         
     # Error check if there is an issue finding the user
     if 'code' in data:
-        data = { 'topic': f'Error: {data["message"]} occured on call to create webinar' }
+        data = { 'topic': f'Error: {data["message"]} occured on call to update webinar' }
 
     return cast(str, data['topic'])
 # ---End---
