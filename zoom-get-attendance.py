@@ -3,12 +3,10 @@ import http.client
 import json
 import jwt
 from datetime import datetime, timedelta
-import time
 from typing import NamedTuple, Dict, Union, cast
 import smtplib
 from email.message import EmailMessage
 import argparse
-from itertools import groupby
 
 API_KEY_KEY = 'api_key'
 API_SECRET_KEY = 'api_secret'
@@ -325,6 +323,7 @@ if __name__ == '__main__':
     for body in meetings:
         enrolled_user = []
         meeting_attendee = []
+        skip_attendance = False
         
         # Get course name
         meeting = get_meeting_report(new_jwt, body)
@@ -376,22 +375,19 @@ if __name__ == '__main__':
             # print(mdl_user[enrolled_user.index(email)])
             absentees.append(mdl_user[enrolled_user.index(email)])
             
-        # Skip, if the class has over 5 students and only one is present
-        skip_attendence = False
-
+        # Skip logic
         in_log = [instance for instance in log if instance['course_id'] == body['course_id']]
         if len(in_log) > 0:
             print(in_log)
             if in_log[0]['meeting_time'] == meeting_time:
                 skip_attendance = True
-                print('Skipped')
         if (len(enrolled_user) / len(meeting_attendee)) > 2 :
-            skip_attendence = True
+            skip_attendance = True
         if len(filtered) < 1:
             skip_attendance = True
         
         # Send attendance if no skip
-        if skip_attendence == False:
+        if skip_attendance == False:
             # continue
             send_attendance(absentees, course_name, body["course_id"], course_program, meeting_time, email_user, email_pass)
         
