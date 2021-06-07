@@ -300,6 +300,14 @@ if __name__ == '__main__':
         help='CSV file of meeting settings'
     )
     
+    parser.add_argument(
+        '--days',
+        metavar='PREV_DAYS',
+        type=int,
+        required=True,
+        help='Number of days ago the meetings occured'
+    )
+    
     args = parser.parse_args()
     list_name = args.file
     log_name = 'log'
@@ -324,67 +332,91 @@ if __name__ == '__main__':
         enrolled_user = []
         meeting_attendee = []
         skip_attendance = False
+        skip_reason = ''
+        meeting_range = datetime.utcnow() - timedelta(days=args.days)
         
-        # Get course name
+        # Get course name and meeting time
         meeting = get_meeting_report(new_jwt, body)
-        meeting_time = meeting['start_time']
         course_name = meeting['topic']
-
-        # Get enrolled users from Moodle
-        users = fetch_course_users(body['course_id'], url, token)
-        
-        print('______________________')
         print(course_name)
-        print(f'Course ID: {body["course_id"]}')
-        print('______________________')
+        meeting_time = datetime.isoformat(meeting_range)
+        if course_name[0: 5] != 'Error':
+            meeting_time = meeting['start_time']
+        else: 
+            skip_attendance = True
+            skip_reason = 'See above error'
+
+        # Skip if meeting time is before the number of previous days from the current date
+        print('Meeting start time')
+        print(meeting_time)
+        if (datetime.fromisoformat(meeting_time.replace('Z', '')) < meeting_range):
+            skip_attendance = True
+            skip_reason = 'Out of time range'
         
-        course_data = fetch_course(body['course_id'], url, token)
-        course_program = course_data[0]['customfields'][0]['value']
-        print('Course Program')
-        print('-----------')
-        print(course_program)
-        print('-----------')
-        
-        mdl_uid = 0
-        mdl_user = []
-        for user in users:
-            print(f'Enrolled User: {user["email"]}')
-            print(f'Enrolled User First Name: {user["firstname"]}')
-            print(f'Enrolled User Last Name: {user["lastname"]}')
-            enrolled_user.append(user["email"])
-            mdl_user.append({ "id": mdl_uid, "email": user["email"], "firstname": user["firstname"], "lastname": user["lastname"] })
-            mdl_uid += 1
-        
-        
-        # Get participants from Zoom Meeting
-        participants = get_meeting_participants_report_request(new_jwt, body)
-        for participant in participants:
-            # print(participant)
-            print(f'Meeting Participant: {participant["user_email"]}')
-            # print(f'join_time: {participant["join_time"]}')
-            # print(f'leave_time: {participant["leave_time"]}')
-            meeting_attendee.append(participant["user_email"])
-            
-        # Compare emails and log students that did not attend
-        filtered = [email for email in enrolled_user if email not in meeting_attendee]
-        print(f'Absent: {filtered}')
-        absentees = []
-        for email in filtered:
-            # print('Absentee values:')
-            # print(enrolled_user.index(email))
-            # print(mdl_user[enrolled_user.index(email)])
-            absentees.append(mdl_user[enrolled_user.index(email)])
-            
-        # Skip logic
+        # Skip if meeting is already logged
         in_log = [instance for instance in log if instance['course_id'] == body['course_id']]
         if len(in_log) > 0:
-            print(in_log)
             if in_log[0]['meeting_time'] == meeting_time:
                 skip_attendance = True
-        if (len(enrolled_user) / len(meeting_attendee)) > 2 :
-            skip_attendance = True
-        if len(filtered) < 1:
-            skip_attendance = True
+                skip_reason = 'Already logged as complete'
+        
+        if skip_attendance == False:
+            # Get enrolled users from Moodle
+            users = fetch_course_users(body['course_id'], url, token)
+            
+            print('______________________')
+            print(course_name)
+            print(f'Course ID: {body["course_id"]}')
+            print('______________________')
+            
+            course_data = fetch_course(body['course_id'], url, token)
+            course_program = course_data[0]['customfields'][0]['value']
+            print('Course Program')
+            print('-----------')
+            print(course_program)
+            print('-----------')
+            
+            num_teachers = 0
+            for user in users:
+                print(f'Enrolled User: {user["email"]}')
+                print(f'Enrolled User First Name: {user["firstname"]}')
+                print(f'Enrolled User Last Name: {user["lastname"]}')
+                enrolled_user.append(user["email"])
+                if user['role'] == 'Teacher':
+                    num_teachers += 1
+            
+            # Get participants from Zoom Meeting
+            participants = get_meeting_participants_report_request(new_jwt, body)
+            for participant in participants:
+                # print(participant)
+                print(f'Meeting Participant: {participant["user_email"]}')
+                # print(f'join_time: {participant["join_time"]}')
+                # print(f'leave_time: {participant["leave_time"]}')
+                meeting_attendee.append(participant["user_email"])
+                
+            # Compare emails and log students that did not attend
+            filtered = [email for email in enrolled_user if email not in meeting_attendee]
+            print(f'Absent: {filtered}')
+            absentees = []
+            num_teachers_absent = 0
+            for email in filtered:
+                # Only log students
+                if users[enrolled_user.index(email)]['roles'][0]['name'] == 'Student':
+                    absentees.append(users[enrolled_user.index(email)])
+                # Skip attendance if one or more teachers are not present
+                if users[enrolled_user.index(email)]['roles'][0]['name'] == 'Teacher':
+                    num_teachers_absent += 1
+                    if num_teachers_absent == num_teachers:
+                        skip_attendance = True
+                        skip_reason = 'Teacher(s) not present'
+            
+            # Skip if more than half the class is absent or there are no absences
+            if (len(enrolled_user) / len(meeting_attendee)) > 2 :
+                skip_attendance = True
+                skip_reason = 'More than half the class missing'
+            if len(filtered) < 1:
+                skip_attendance = True
+                skip_reason = 'No absentees'
         
         # Send attendance if no skip
         if skip_attendance == False:
@@ -400,4 +432,5 @@ if __name__ == '__main__':
                 print(f'Error writting log file!')
         else:
             print('---==== Skipped ====---')
+            print(skip_reason)
     print('Finished processing attendance!')
