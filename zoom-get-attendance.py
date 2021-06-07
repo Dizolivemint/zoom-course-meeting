@@ -8,6 +8,7 @@ from typing import NamedTuple, Dict, Union, cast
 import smtplib
 from email.message import EmailMessage
 import argparse
+from itertools import groupby
 
 API_KEY_KEY = 'api_key'
 API_SECRET_KEY = 'api_secret'
@@ -22,15 +23,36 @@ Creds = NamedTuple('Creds', [('key', str), ('secret', str), ('url', str), ('toke
 # ---Start---
 def read_csv(filename: str):
     meetings = []
-    with open(filename, newline='') as csvfile:
-        meeting_reader = csv.reader(csvfile, dialect='excel', delimiter=',', quotechar='|')
-        next(meeting_reader)
-        for row in meeting_reader:
-            meetings.append({
-                'id': f'{row[0].rstrip()}',
-                'course_id': f'{row[1].rstrip()}'
-            })
+    try:
+        with open(filename, newline='') as csvfile:
+            meeting_reader = csv.reader(csvfile, dialect='excel', delimiter=',', quotechar='|')
+            next(meeting_reader)
+            for row in meeting_reader:
+                meetings.append({
+                    'id': f'{row[0].rstrip()}',
+                    'course_id': f'{row[1].rstrip()}'
+                })
+    except:
+        meetings = []
+    return meetings
+# ---End---
 
+# Open Log CSV
+# ---Start---
+def read_log(log_name: str):
+    meetings = []
+    try:
+        with open(log_name, newline='') as csvfile:
+            meeting_reader = csv.reader(csvfile, dialect='excel', delimiter=',', quotechar='|')
+            next(meeting_reader)
+            for row in meeting_reader:
+                meetings.append({
+                    'course_name': f'{row[0].rstrip()}',
+                    'course_id': f'{row[1].rstrip()}',
+                    'meeting_time': f'{row[2].rstrip()}'
+                })
+    except:
+        meetings = []
     return meetings
 # ---End---
 
@@ -215,20 +237,20 @@ def write_csv(lti_csv: list, out_filename: str) -> bool:
 
 # Store Log Data
 # ---Start---
-def log_data(log_csv: list, meeting_id: str, course_id: str, shortname: str) -> list:
+def log_data(log_csv: list, course_name: str, course_id: str, meeting_time: str) -> list:
     log_csv.append([
-        shortname,
-        meeting_id,
-        course_id
+        course_name,
+        course_id,
+        meeting_time
     ])
     
     return log_csv
 # ---End---
 
-# Write CSV for Zoom LTI (Meeting ID and Moodle Course ID)
+# Append CSV for Zoom LTI (Meeting ID and Moodle Course ID)
 # ---Start---
 def write_log(log_csv: list, out_filename: str) -> bool:
-    with open(out_filename, 'w', newline='') as csvfile:
+    with open(out_filename, 'a', newline='') as csvfile:
         writer = csv.writer(csvfile, delimiter=',',
                             quotechar='|', quoting=csv.QUOTE_MINIMAL)
         for log in log_csv:
@@ -271,7 +293,6 @@ def send_attendance(absentees: list, course_name: str, course_id: str, course_pr
         mailserver.send_message(msg)
         mailserver.quit()
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Backs up Zoom cloud recordings')
     parser.add_argument(
@@ -282,13 +303,19 @@ if __name__ == '__main__':
     )
     
     args = parser.parse_args()
+    list_name = args.file
+    log_name = 'log'
     
     # Create JWT
     key, secret, url, token, email_user, email_pass = read_credentails()
     new_jwt = generate_jwt(key, secret)
 
     # Read Schedule
-    meetings = read_csv(args.file)
+    meetings = read_csv(list_name)
+    
+    # Read Log
+    # Course ID and Meeting Time
+    log = read_log(f'{log_name}.csv')
     
     # Create a list and log to write to CSV
     lti_csv = []
@@ -333,7 +360,7 @@ if __name__ == '__main__':
         # Get participants from Zoom Meeting
         participants = get_meeting_participants_report_request(new_jwt, body)
         for participant in participants:
-            print(participant)
+            # print(participant)
             print(f'Meeting Participant: {participant["user_email"]}')
             # print(f'join_time: {participant["join_time"]}')
             # print(f'leave_time: {participant["leave_time"]}')
@@ -351,30 +378,30 @@ if __name__ == '__main__':
             
         # Skip, if the class has over 5 students and only one is present
         skip_attendence = False
-        if len(meeting_attendee) < 3:
-            if len(enrolled_user) > 6:
-                skip_attendence = True
+
+        in_log = [instance for instance in log if instance['course_id'] == body['course_id']]
+        if len(in_log) > 0:
+            print(in_log)
+            if in_log[0]['meeting_time'] == meeting_time:
+                skip_attendance = True
+                print('Skipped')
+        if (len(enrolled_user) / len(meeting_attendee)) > 2 :
+            skip_attendence = True
         if len(filtered) < 1:
             skip_attendance = True
-                
+        
         # Send attendance if no skip
         if skip_attendence == False:
             # continue
             send_attendance(absentees, course_name, body["course_id"], course_program, meeting_time, email_user, email_pass)
         
-        # Compare join and leave time to course start and end time?
-        # Get course duration
-        
-        
-    #     # Log created meeting, course ID, and shortname for reference if the meeting has been created
-    #     log_csv = log_data(log_csv, meeting_id, course_id, shortname)
-    
-    # if write_csv(lti_csv, f'mdl-zoom{time.time()}.csv'):
-    #     print(f'File successfully created!')
-    # else:
-    #     print(f'Error writting CSV file!')
-        
-    # if write_log(log_csv, f'log{time.time()}.csv'):
-    #     print(f'File successfully created!')
-    # else:
-    #     print(f'Error writting log file!')
+            # Log result
+            log_csv = log_data(log_csv, course_name, body["course_id"], meeting_time)
+            
+            if write_log(log_csv, f'{log_name}.csv'):
+                print(f'Logged to file!')
+            else:
+                print(f'Error writting log file!')
+        else:
+            print('---==== Skipped ====---')
+    print('Finished processing attendance!')
